@@ -1,26 +1,150 @@
-# Use the latest 2.1 version of CircleCI pipeline process engine.
-# See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
-
-# Define a job to be invoked later in a workflow.
-# See: https://circleci.com/docs/2.0/configuration-reference/#jobs
+orbs: 
+  terraform: swile/terraform@1.1.0
+  # This code is licensed from CircleCI to the user under the MIT license.
+# See here for details: https://circleci.com/developer/orbs/licensing
+commands:
+    provision_aws_credentials:
+        parameters:
+            aws_access_key:
+                type: env_var_name
+            aws_region:
+                type: env_var_name
+            aws_secret_key:
+                type: env_var_name
+            environment:
+                type: string
+        steps:
+            - run:
+                command: |
+                    mkdir -p /root/.aws
+                    echo '[profile lunchr-root]' >> /root/.aws/config
+                    echo "aws_access_key_id=$ROOT_AWS_ACCESS_KEY_ID" >> /root/.aws/config
+                    echo "aws_secret_access_key=$ROOT_AWS_SECRET_ACCESS_KEY" >> /root/.aws/config
+                    echo "aws_region=$ROOT_AWS_REGION" >> /root/.aws/config
+                    echo '[profile lunchr-<< parameters.environment >>]' >> /root/.aws/config
+                    echo "aws_access_key_id=${<< parameters.aws_access_key >>}" >> /root/.aws/config
+                    echo "aws_secret_access_key=${<< parameters.aws_secret_key >>}" >> /root/.aws/config
+                    echo "aws_region=${<< parameters.aws_region >>}" >> /root/.aws/config
+                name: configure AWS credentials
+    terraform_apply:
+        parameters:
+            tf_working_directory:
+                type: string
+        steps:
+            - run:
+                command: terraform apply -input=false tfplan
+                working_directory: << parameters.tf_working_directory >>
+    terraform_init:
+        parameters:
+            tf_working_directory:
+                type: string
+        steps:
+            - checkout
+            - run:
+                command: terraform init --input=false
+                working_directory: << parameters.tf_working_directory >>
+    terraform_plan:
+        parameters:
+            country_code_prefix:
+                default: ""
+                description: prefix to add to environment in international like 'br-'
+                type: string
+            environment:
+                type: string
+            tf_working_directory:
+                type: string
+        steps:
+            - run:
+                command: |
+                    terraform plan -var-file="vars/<< parameters.country_code_prefix >><< parameters.environment >>.tfvars" -var "git_revision=${CIRCLE_SHA1}" -var "deploy_date=$(date -u +'%FT%H%MZ')" -var "git_token=${GIT_TOKEN}" -input=false -out=tfplan
+                name: terraform plan
+                working_directory: << parameters.tf_working_directory >>
+description: |
+    This terraform orb is for deploying resources into 1 AWS account but with stacks in another account.
+examples:
+    terraform:
+        description: terraform init, plan then apply
+        usage:
+            orbs:
+                terraform: swile/terraform@dev:x.y.z
+            version: 2.1
+            workflows:
+                example_deploy:
+                    jobs:
+                        - terraform/terraform_init_plan_apply:
+                            aws_access_key: STAGING_AWS_ACCESS_KEY_ID
+                            aws_region: STAGING_AWS_REGION
+                            aws_secret_key: STAGING_AWS_SECRET_ACCESS_KEY
+                            context: aws
+                            environment: staging
+                            name: deploy staging
+                version: 2
+executors:
+    terraform_container:
+        docker:
+            - image: hashicorp/terraform:<< parameters.version >>
+        environment:
+            MAINTENANCE_MODE: disabled
+            TF_IN_AUTOMATION: "1"
+            TF_WORKSPACE: << parameters.country_code_prefix >><< parameters.environment >>
+        parameters:
+            country_code_prefix:
+                default: ""
+                description: prefix to add to environment in international like 'br-'
+                type: string
+            environment:
+                type: string
+            version:
+                default: 0.12.10
+                type: string
+        resource_class: small
 jobs:
-  say-hello:
-    # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
-    # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
-    docker:
-      - image: cimg/base:stable
-    # Add steps to the job
-    # See: https://circleci.com/docs/2.0/configuration-reference/#steps
-    steps:
-      - checkout
-      - run:
-          name: "Say hello"
-          command: "echo Hello, World!"
+    terraform_init_plan_apply:
+        executor:
+            country_code_prefix: << parameters.country_code_prefix >>
+            environment: << parameters.environment >>
+            name: terraform_container
+            version: << parameters.version >>
+        parameters:
+            aws_access_key:
+                description: The access key environment variable
+                type: env_var_name
+            aws_region:
+                description: The environment variable pointing to the target region
+                type: env_var_name
+            aws_secret_key:
+                description: The secret key environment variable
+                type: env_var_name
+            country_code_prefix:
+                default: ""
+                description: prefix to add to environment in international like 'br-'
+                type: string
+            environment:
+                default: staging
+                description: The target environment/workspace
+                type: string
+            tf_working_directory:
+                default: .cloud/terraform
+                description: Where to run terraform command
+                type: string
+            version:
+                default: 0.12.10
+                description: terraform version
+                type: string
+        steps:
+            - provision_aws_credentials:
+                aws_access_key: << parameters.aws_access_key >>
+                aws_region: << parameters.aws_region >>
+                aws_secret_key: << parameters.aws_secret_key >>
+                environment: <<parameters.environment>>
+            - terraform_init:
+                tf_working_directory: << parameters.tf_working_directory >>
+            - terraform_plan:
+                country_code_prefix: << parameters.country_code_prefix >>
+                environment: << parameters.environment >>
+                tf_working_directory: << parameters.tf_working_directory >>
+            - terraform_apply:
+                tf_working_directory: << parameters.tf_working_directory >>
+version: "2.1"
 
-# Invoke jobs via workflows
-# See: https://circleci.com/docs/2.0/configuration-reference/#workflows
-workflows:
-  say-hello-workflow:
-    jobs:
-      - say-hello
