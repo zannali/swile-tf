@@ -1,5 +1,4 @@
 # CircleCI configuration file
-version: 2.1
 orbs: 
   terraform: swile/terraform@1.1.0
   # This code is licensed from CircleCI to the user under the MIT license.
