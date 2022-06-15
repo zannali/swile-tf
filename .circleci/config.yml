@@ -1,4 +1,14 @@
 # CircleCI configuration file
+workflows:
+  example_deploy:
+    jobs:
+      - terraform/terraform_init_plan_apply:
+          aws_access_key: STAGING_AWS_ACCESS_KEY_ID
+          aws_region: STAGING_AWS_REGION
+          aws_secret_key: STAGING_AWS_SECRET_ACCESS_KEY
+          context: aws
+          environment: staging
+          name: deploy staging
 orbs: 
   terraform: swile/terraform@1.1.0
   # This code is licensed from CircleCI to the user under the MIT license.
